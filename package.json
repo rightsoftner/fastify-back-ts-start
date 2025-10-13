@@ -13,16 +13,14 @@
   "license": "MIT",
   "devDependencies": {
     "@types/node": "^20.10.3",
-    "concurrently": "^8.2.2",
+    "concurrently": "^9.2.1",
     "nodemon": "^3.0.2",
-    "ts-node": "^10.9.1",
+    "ts-node": "^10.9.2",
     "tsconfig-paths": "^4.2.0",
-    "typescript": "^5.3.2"
+    "typescript": "^5.9.3"
   },
   "dependencies": {
-    "@prisma/client": "^5.6.0",
-    "fastify": "^4.24.3",
-    "fastify-plugin": "^4.5.1",
-    "prisma": "^5.6.0"
+    "fastify": "^5.6.1",
+    "fastify-plugin": "^5.1.0"
   }
 }
