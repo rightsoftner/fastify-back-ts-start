@@ -1,0 +1,207 @@
+import { FastifyReply, FastifyRequest } from "fastify";
+import bcrypt from "bcryptjs";
+import jwt from "jsonwebtoken";
+import { v4 as uuidv4 } from "uuid";
+
+// Try to import Prisma client if present, otherwise keep a generic any User model
+let User: any = null;
+try {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const prisma = require("../client").prisma;
+  User = {
+    findUnique: (q: any) => prisma.user.findUnique(q),
+    findFirst: (q: any) => prisma.user.findFirst(q),
+    count: (q: any) => prisma.user.count(q),
+    create: (data: any) => prisma.user.create(data),
+    update: (q: any) => prisma.user.update(q),
+  };
+} catch (e) {
+  // fallback to existing mongoose-style model if present
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    User = require("./models/auth/User");
+  } catch (err) {
+    User = null;
+  }
+}
+
+const tokenConfig = {
+  expiresIn: process.env.TOKEN_EXPIRES || "1h",
+};
+
+const generateAccessToken = (id: string) => {
+  const payload = { id };
+  return jwt.sign(payload, process.env.SECRET_KEY || "secret", tokenConfig);
+};
+
+export const login = async (request: FastifyRequest, reply: FastifyReply) => {
+  try {
+    const { username, password } = (request.body as any) || {};
+    // create admin if needed - keep original behavior minimal
+    if (User && typeof (User.count || User.where) === "function") {
+      // noop for Prisma fallback; assume DB seeded elsewhere
+    }
+
+    if (!User) {
+      return reply.status(500).send({ message: "User model not available" });
+    }
+
+    // Prisma style
+    let user: any = null;
+    if (User.findUnique) {
+      user = await User.findUnique({ where: { username } });
+    }
+    // mongoose style
+    if (!user && User.findOne) {
+      user = await User.findOne({ username });
+    }
+
+    if (!user) {
+      return reply.status(403).send({ message: "Помилка авторизації" });
+    }
+
+    const validPassword = bcrypt.compareSync(password, user.password);
+    if (!validPassword) {
+      return reply.status(403).send({ message: "Помилка авторизації" });
+    }
+
+    const responseResult: any = {};
+    responseResult.token = generateAccessToken(user.id || user._id);
+
+    // update minimal user metadata where possible
+    try {
+      if (user.userData) {
+        user.userData.ip = request.headers.host;
+        user.userData.browser = request.headers["user-agent"] as string;
+      }
+      if (User.update) {
+        // Prisma update
+        await User.update({ where: { id: user.id || user._id }, data: { lastToken: responseResult.token } });
+      } else if (user.save) {
+        user.lastToken = responseResult.token;
+        await user.save();
+      }
+    } catch (e) {
+      // ignore metadata update errors
+    }
+
+    return reply.status(200).send(responseResult);
+  } catch (err) {
+    return reply.status(500).send({ message: "Помилка на боці серверу" });
+  }
+};
+
+export const renewPassword = async (request: FastifyRequest, reply: FastifyReply) => {
+  try {
+    const { username } = (request.body as any) || {};
+    if (!User) return reply.status(500).send({ message: "User model not available" });
+
+    let user: any = null;
+    if (User.findUnique) user = await User.findUnique({ where: { username } });
+    if (!user && User.findOne) user = await User.findOne({ username });
+
+    if (!user) {
+      return reply.status(200).send({ message: "Посилання для відновлення паролю відправлено" });
+    }
+
+    const activationLink = uuidv4();
+    try {
+      if (User.update) {
+        await User.update({ where: { id: user.id || user._id }, data: { renewPasswordLink: activationLink, renewPasswordDate: new Date() } });
+      } else if (user.save) {
+        user.renewPasswordLink = activationLink;
+        user.renewPasswordDate = new Date();
+        await user.save();
+      }
+    } catch (e) {
+      // ignore
+    }
+
+    // send email via mail-service if available
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const mailService = require("../service/mail-service");
+      const { urls } = require("../config/app");
+      await mailService.sendActivationMail(process.env.ADMIN_EMAIL, `${urls.APP_URL}/api/auth/renew/${activationLink}`);
+    } catch (e) {
+      // ignore mail errors
+    }
+
+    return reply.status(200).send({ message: "Посилання для відновлення паролю відправлено" });
+  } catch (err) {
+    return reply.status(500).send({ message: "Помилка на боці серверу" });
+  }
+};
+
+export const renewPasswordLink = async (request: FastifyRequest, reply: FastifyReply) => {
+  try {
+    const params = (request.params as any) || {};
+    const renewPasswordLinkParam = params.link;
+    if (!User) return reply.status(500).send({ message: "User model not available" });
+
+    let user: any = null;
+    if (User.findFirst) user = await User.findFirst({ where: { renewPasswordLink: renewPasswordLinkParam } });
+    if (!user && User.findOne) user = await User.findOne({ renewPasswordLink: renewPasswordLinkParam });
+
+    const linkExpires = Number(process.env.RENEW_LINK_EXPIRES || 1000 * 60 * 60 * 24);
+
+    if (!user || (user.renewPasswordDate && new Date(user.renewPasswordDate).getTime() + linkExpires < Date.now())) {
+      return reply.status(400).send({ message: "Посилання не дійсне" });
+    }
+
+    const responseResult: any = {};
+    responseResult.token = generateAccessToken(user.id || user._id);
+
+    try {
+      if (user.userData) {
+        user.userData.ip = request.headers.host;
+        user.userData.browser = request.headers["user-agent"] as string;
+      }
+      if (User.update) {
+        await User.update({ where: { id: user.id || user._id }, data: { lastToken: responseResult.token } });
+      } else if (user.save) {
+        user.lastToken = responseResult.token;
+        await user.save();
+      }
+    } catch (e) {
+      // ignore
+    }
+
+    return reply.status(200).send(responseResult);
+  } catch (err) {
+    return reply.status(500).send({ message: "Помилка на боці серверу" });
+  }
+};
+
+export const changePassword = async (request: FastifyRequest, reply: FastifyReply) => {
+  try {
+    const body = (request.body as any) || {};
+    const userId = (request.user as any)?.id;
+    if (!userId) return reply.status(403).send({ message: "Користувач не авторизований" });
+    if (!User) return reply.status(500).send({ message: "User model not available" });
+
+    let user: any = null;
+    if (User.findUnique) user = await User.findUnique({ where: { id: userId } });
+    if (!user && User.findOne) user = await User.findOne({ _id: userId });
+
+    if (!user) return reply.status(403).send({ message: "Користувач не авторизований" });
+
+    const hashPassword = bcrypt.hashSync(body.password, 7);
+    try {
+      if (User.update) {
+        await User.update({ where: { id: user.id || user._id }, data: { password: hashPassword } });
+      } else if (user.save) {
+        user.password = hashPassword;
+        await user.save();
+      }
+    } catch (e) {
+      // ignore
+    }
+
+    return reply.status(200).send({ message: "Пароль користувача змінено" });
+  } catch (err) {
+    return reply.status(500).send({ message: "Помилка на боці серверу" });
+  }
+};
+
+export default { login, renewPassword, renewPasswordLink, changePassword };
