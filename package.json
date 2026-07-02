@@ -13,6 +13,7 @@
   "license": "MIT",
   "devDependencies": {
     "@types/node": "^26.0.1",
+    "@types/node-jose": "^1.1.13",
     "concurrently": "^10.0.3",
     "nodemon": "^3.1.14",
     "ts-node": "^10.9.2",
@@ -23,6 +24,7 @@
     "@fastify/type-provider-typebox": "^6.1.0",
     "@sinclair/typebox": "^0.34.49",
     "fastify": "^5.8.5",
-    "fastify-plugin": "^6.0.0"
+    "fastify-plugin": "^6.0.0",
+    "jose": "^6.2.3"
   }
 }
