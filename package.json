@@ -4,6 +4,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
+    "start": "node --env-file=.env build/index.js",
     "test": "echo \"Error: no test specified\" && exit 1",
     "build": "tsc",
     "dev": "export NODE_ENV=development TS_NODE_BASEURL=./dist && concurrently -k -p \"[{name}]\" -n \"TypeScript,App\" -c \"yellow.bold,cyan.bold\" \"tsc -w\" \"nodemon\""
@@ -13,7 +14,6 @@
   "license": "MIT",
   "devDependencies": {
     "@types/node": "^26.0.1",
-    "@types/node-jose": "^1.1.13",
     "concurrently": "^10.0.3",
     "nodemon": "^3.1.14",
     "ts-node": "^10.9.2",
@@ -21,10 +21,11 @@
     "typescript": "^6.0.3"
   },
   "dependencies": {
+    "@fastify/env": "^7.0.0",
+    "@fastify/jwt": "^10.1.0",
     "@fastify/type-provider-typebox": "^6.1.0",
     "@sinclair/typebox": "^0.34.49",
     "fastify": "^5.8.5",
-    "fastify-plugin": "^6.0.0",
-    "jose": "^6.2.3"
+    "fastify-plugin": "^6.0.0"
   }
 }
